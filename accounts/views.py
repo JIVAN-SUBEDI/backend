@@ -2,6 +2,7 @@ from rest_framework import generics, permissions, viewsets,status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.response import Response
+from django.shortcuts import render
 from .models import User
 from .serializers import (
     UserSerializer,
@@ -12,6 +13,9 @@ from .serializers import (
 )
 from backend.permissions import IsSuperAdminOrCasinoAdmin
 
+def index(request):
+    return render(request, 'index.html')
+    
 
 class LoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
