@@ -26,7 +26,11 @@ SECRET_KEY = 'django-insecure-yud#&!)n(d5-)w##mzld0#w@)xn*d1qtbgrdlfes-32*5g$#6w
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "147.93.104.123",
+    "johnworkspace.com",
+    "www.johnworkspace.com",
+]
 
 
 # Application definition
@@ -140,3 +144,5 @@ REST_FRAMEWORK = {
     ),
 
 }
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
