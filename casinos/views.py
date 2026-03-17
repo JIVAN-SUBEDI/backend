@@ -35,6 +35,9 @@ def username_to_fullname(username: str) -> str:
 class DailyNoteParserView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    def normalize_username(self, username: str) -> str:
+        return re.sub(r"\s+", " ", username.strip()).lower()
+
     def get_casino_id(self, request):
         user = request.user
 
@@ -75,9 +78,11 @@ class DailyNoteParserView(APIView):
                 "error": "Invalid format. Expected: username amount platform payment_method",
             }
 
-        username = tokens[0].strip()
-        if not username:
+        raw_username = tokens[0].strip()
+        if not raw_username:
             return {"raw": raw_line, "error": "Username is required."}
+
+        username = self.normalize_username(raw_username)
 
         is_withdraw = False
         if (
@@ -90,6 +95,7 @@ class DailyNoteParserView(APIView):
 
         amount_token = None
         amount_index = None
+
         for idx, token in enumerate(tokens[1:], start=1):
             cleaned = token.replace("$", "").replace(",", "")
             if re.fullmatch(r"-?\d+(\.\d+)?", cleaned):
@@ -112,10 +118,6 @@ class DailyNoteParserView(APIView):
             is_withdraw = True
             amount = abs(amount)
 
-        # Usually pattern is:
-        # username amount platform payment_method
-        # username cash out amount platform payment_method
-        # username -amount platform payment_method
         platform_token = None
         payment_token = None
 
@@ -130,7 +132,8 @@ class DailyNoteParserView(APIView):
 
         return {
             "raw": raw_line,
-            "username": username,
+            "username": username,  # normalized username
+            "original_username": raw_username,  # optional, just for preview/debug
             "fullname": username_to_fullname(username),
             "amount": str(amount),
             "platform_token": platform_token,
@@ -229,15 +232,14 @@ class DailyNoteParserView(APIView):
 
         with db_transaction.atomic():
             for row in valid_rows:
-                customer, created = Customer.objects.get_or_create(
-                    username=row["username"],
-                    defaults={
-                        "fullname": row["fullname"],
-                        "casino_id": casino_id,
-                    },
-                )
+                normalized_username = self.normalize_username(row["username"])
 
-                if customer.casino_id != casino_id:
+                # Check if same username exists in another casino
+                existing_other_casino = Customer.objects.filter(
+                    username__iexact=normalized_username
+                ).exclude(casino_id=casino_id).first()
+
+                if existing_other_casino:
                     errors.append(
                         {
                             **row,
@@ -245,6 +247,27 @@ class DailyNoteParserView(APIView):
                         }
                     )
                     continue
+
+                # Get existing customer in same casino, case-insensitive
+                customer = Customer.objects.filter(
+                    casino_id=casino_id,
+                    username__iexact=normalized_username,
+                ).order_by("id").first()
+
+                created = False
+
+                if not customer:
+                    customer = Customer.objects.create(
+                        username=normalized_username,
+                        fullname=row["fullname"],
+                        casino_id=casino_id,
+                    )
+                    created = True
+                else:
+                    # Optional: normalize old stored username if needed
+                    if customer.username != normalized_username:
+                        customer.username = normalized_username
+                        customer.save(update_fields=["username"])
 
                 tx = Transaction.objects.create(
                     customer=customer,
