@@ -116,10 +116,7 @@ class CampaignSegmentsView(APIView):
 
         return Customer.objects.none()
 
-    def serialize_customer(self, customer):
-        total_deposit = Decimal(getattr(customer, "total_deposit", 0) or 0)
-        total_withdrawal = Decimal(getattr(customer, "total_withdrawal", 0) or 0)
-
+    def serialize_customer(self, customer, total_deposit=0, total_withdrawal=0, last_activity=None):
         return {
             "id": customer.id,
             "fullname": customer.fullname,
@@ -127,15 +124,14 @@ class CampaignSegmentsView(APIView):
             "casino_name": customer.casino.name if customer.casino else "",
             "total_deposit": float(total_deposit),
             "total_withdrawal": float(total_withdrawal),
-            "last_activity": customer.last_activity if hasattr(customer, "last_activity") else None,
-            "tags": customer.tags if hasattr(customer, "tags") else [],
-            "status": customer.status if hasattr(customer, "status") else "",
+            "last_activity": last_activity,
         }
 
     def get(self, request, *args, **kwargs):
         queryset = self.get_queryset(request)
+        now = timezone.now()
+        regular_cutoff = now - timedelta(days=3)
 
-        customers = list(queryset)
         segments = {
             "vip_players": [],
             "regular_players": [],
@@ -144,58 +140,90 @@ class CampaignSegmentsView(APIView):
             "inactive_players": [],
         }
 
-        for customer in customers:
-            total_deposit = Decimal(getattr(customer, "total_deposit", 0) or 0)
-            total_withdrawal = Decimal(getattr(customer, "total_withdrawal", 0) or 0)
-            tags = [str(tag).lower() for tag in (getattr(customer, "tags", []) or [])]
-            status = str(getattr(customer, "status", "") or "").lower()
+        for customer in queryset:
+            txns = list(customer.transactions.all())
 
-            item = self.serialize_customer(customer)
+            total_deposit = Decimal("0")
+            total_withdrawal = Decimal("0")
+            deposit_amounts = []
+            last_activity = None
 
-            if "vip" in tags or status == "vip":
+            for txn in txns:
+                amount = Decimal(str(getattr(txn, "amount", 0) or 0))
+                txn_type = str(getattr(txn, "transaction_type", "") or "").lower()
+                txn_date = getattr(txn, "created_at", None)
+
+                if txn_date and (last_activity is None or txn_date > last_activity):
+                    last_activity = txn_date
+
+                if txn_type == "deposit":
+                    total_deposit += amount
+                    deposit_amounts.append(amount)
+
+                elif txn_type == "withdrawal":
+                    total_withdrawal += amount
+
+            item = self.serialize_customer(
+                customer=customer,
+                total_deposit=total_deposit,
+                total_withdrawal=total_withdrawal,
+                last_activity=last_activity,
+            )
+
+            # Regular player = has activity within last 3 days
+            is_regular = last_activity is not None and last_activity >= regular_cutoff
+
+            # VIP player = regular + all deposits > 50
+            is_vip = (
+                is_regular
+                and len(deposit_amounts) > 0
+                and all(amount > Decimal("50") for amount in deposit_amounts)
+            )
+
+            if is_vip:
                 segments["vip_players"].append(item)
 
-            if ("regular_player" in tags or status == "regular" or status == "active") and "vip" not in tags:
+            if is_regular:
                 segments["regular_players"].append(item)
 
-            if total_deposit > Decimal("30000"):
+            if total_deposit > Decimal("5000"):
                 segments["high_deposit_players"].append(item)
 
-            if total_withdrawal > Decimal("20000"):
+            if total_withdrawal > Decimal("2000"):
                 segments["high_withdrawal_players"].append(item)
 
-            if "inactive" in tags or status == "inactive":
+            if not last_activity or last_activity < regular_cutoff:
                 segments["inactive_players"].append(item)
 
         response = {
             "segments": {
                 "vip_players": {
                     "name": "VIP Players",
-                    "description": "High-value customers with VIP status",
+                    "description": "Regular players whose every deposit is more than 50",
                     "count": len(segments["vip_players"]),
                     "players": segments["vip_players"],
                 },
                 "regular_players": {
                     "name": "Regular Players",
-                    "description": "Active regular customers",
+                    "description": "Players active within the last 3 days",
                     "count": len(segments["regular_players"]),
                     "players": segments["regular_players"],
                 },
                 "high_deposit_players": {
                     "name": "High Deposit Players",
-                    "description": "Players with deposits over $30,000",
+                    "description": "Players with total deposits over 5000",
                     "count": len(segments["high_deposit_players"]),
                     "players": segments["high_deposit_players"],
                 },
                 "high_withdrawal_players": {
                     "name": "High Withdrawal Players",
-                    "description": "Players with withdrawals over $20,000",
+                    "description": "Players with total withdrawals over 2000",
                     "count": len(segments["high_withdrawal_players"]),
                     "players": segments["high_withdrawal_players"],
                 },
                 "inactive_players": {
                     "name": "Inactive Players",
-                    "description": "Players with no recent activity",
+                    "description": "Players with no activity in the last 3 days",
                     "count": len(segments["inactive_players"]),
                     "players": segments["inactive_players"],
                 },
