@@ -33,13 +33,12 @@ class CustomerViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         user = self.request.user
     
-        # Casino admin / staff → auto assign
         if user.role in ["casino_admin", "staff"]:
             if not user.casino:
                 raise ValidationError({"detail": "User is not assigned to any casino"})
             serializer.save(casino=user.casino)
     
-        # Super admin → must provide casino
+      
         elif user.role == "super_admin":
             casino_id = self.request.data.get("casino")
     
@@ -48,7 +47,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
     
             serializer.save(casino_id=casino_id)
     
-        # Other roles → block
         else:
             raise ValidationError({"detail": "You do not have permission"})
 
@@ -85,20 +83,19 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = self.request.user
-
+    
         if user.role == "super_admin":
-
-            serializer.save(added_by=user)
-        
-        elif user.role == "casino_admin":
+            casino_id = self.request.data.get("casino")
+            if not casino_id:
+                raise ValidationError({"casino": "Casino is required for super admin"})
+            serializer.save(added_by=user, casino_id=casino_id)
+    
+        elif user.role in ["casino_admin", "staff"]:
+            if not user.casino_id:
+                raise ValidationError({"detail": "User is not assigned to any casino"})
             serializer.save(added_by=user, casino=user.casino)
-        
-        elif user.role == "staff":
-            serializer.save(added_by=user, casino=user.casino)
-        
+    
         else:
-            # Handle other roles or unauthorized
-            from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You don't have permission to create transactions")
 
     def perform_update(self, serializer):
