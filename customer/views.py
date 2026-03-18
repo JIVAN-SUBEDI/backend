@@ -32,11 +32,25 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = self.request.user
-
+    
+        # Casino admin / staff → auto assign
         if user.role in ["casino_admin", "staff"]:
+            if not user.casino:
+                raise ValidationError({"detail": "User is not assigned to any casino"})
             serializer.save(casino=user.casino)
+    
+        # Super admin → must provide casino
+        elif user.role == "super_admin":
+            casino_id = self.request.data.get("casino")
+    
+            if not casino_id:
+                raise ValidationError({"casino": "Casino is required for super admin"})
+    
+            serializer.save(casino_id=casino_id)
+    
+        # Other roles → block
         else:
-            serializer.save()
+            raise ValidationError({"detail": "You do not have permission"})
 
 
 class TransactionViewSet(viewsets.ModelViewSet):
