@@ -129,34 +129,34 @@ class TransactionViewSet(viewsets.ModelViewSet):
         else:
             raise PermissionDenied("You don't have permission to create transactions")
 
-   def perform_update(self, serializer):
-    user = self.request.user
-    instance = self.get_object()
-
-    if user.role == "super_admin":
-        casino_id = self.request.data.get("casino")
-
-        # keep old casino if not provided
-        if not casino_id:
-            casino_id = instance.casino_id
-
-        if not casino_id:
-            raise ValidationError({"casino": "Casino is required for super admin"})
-
-        serializer.save(casino_id=casino_id)
-
-    elif user.role in ["casino_admin", "staff"]:
-        if not user.casino_id:
-            raise ValidationError({"detail": "User is not assigned to any casino"})
-
-        # extra protection: cannot update another casino's record
-        if instance.casino_id != user.casino_id:
-            raise PermissionDenied("You cannot update records from another casino")
-
-        serializer.save(casino_id=user.casino_id)
-
-    else:
-        raise PermissionDenied("You don't have permission to update this record")
+    def perform_update(self, serializer):
+        user = self.request.user
+        instance = self.get_object()
+    
+        if user.role == "super_admin":
+            casino_id = self.request.data.get("casino")
+    
+            # keep old casino if not provided
+            if not casino_id:
+                casino_id = instance.casino_id
+    
+            if not casino_id:
+                raise ValidationError({"casino": "Casino is required for super admin"})
+    
+            serializer.save(casino_id=casino_id)
+    
+        elif user.role in ["casino_admin", "staff"]:
+            if not user.casino_id:
+                raise ValidationError({"detail": "User is not assigned to any casino"})
+    
+            # extra protection: cannot update another casino's record
+            if instance.casino_id != user.casino_id:
+                raise PermissionDenied("You cannot update records from another casino")
+    
+            serializer.save(casino_id=user.casino_id)
+    
+        else:
+            raise PermissionDenied("You don't have permission to update this record")
     
 class CampaignSegmentsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
