@@ -9,6 +9,9 @@ from rest_framework.views import APIView
 from decimal import Decimal
 from datetime import timedelta
 from django.utils import timezone
+import json
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 class TransactionPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = "page_size"
@@ -288,3 +291,30 @@ class CampaignSegmentsView(APIView):
         }
 
         return Response(response, status=drf_status.HTTP_200_OK)
+
+@csrf_exempt
+def messenger_webhook(request):
+    # Meta webhook verification
+    if request.method == "GET":
+        mode = request.GET.get("hub.mode")
+        token = request.GET.get("hub.verify_token")
+        challenge = request.GET.get("hub.challenge")
+
+        if mode == "subscribe" and token == 123456789:
+            return HttpResponse(challenge, status=200)
+
+        return HttpResponse("Verification failed", status=403)
+
+    # Incoming webhook events
+    if request.method == "POST":
+        try:
+            body = json.loads(request.body.decode("utf-8"))
+        except Exception:
+            return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+        # optional: inspect Messenger events here
+        print("Webhook body:", body)
+
+        return JsonResponse({"status": "EVENT_RECEIVED"}, status=200)
+
+    return JsonResponse({"error": "Method not allowed"}, status=405)
